@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/contexts/ThemeContext";
@@ -63,14 +64,17 @@ function RequireStorageOwnerDashboard({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+const queryClient = new QueryClient();
+
 export function App() {
   // BrowserRouter uses window.location, so mount only after hydration.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   if (!mounted) return null;
   return (
-    <ThemeProvider>
-      <AuthProvider>
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <AuthProvider>
         <BrowserRouter>
           <Routes>
             {/* Public marketing pages */}
@@ -124,5 +128,6 @@ export function App() {
         </BrowserRouter>
       </AuthProvider>
     </ThemeProvider>
+    </QueryClientProvider>
   );
 }
