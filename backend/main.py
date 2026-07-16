@@ -437,6 +437,10 @@ class ExplainInput(BaseModel):
 def root():
     return {"message": "FasalSeva API Running"}
 
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}
+
 # 0. Current Price
 class ChatInput(BaseModel):
     message: str
