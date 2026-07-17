@@ -29,8 +29,8 @@ export function StorageLogin() {
       await authService.login(phone);
       setStep(2);
       toast.success("OTP sent to your number");
-    } catch {
-      toast.error("Failed to send OTP");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to send OTP. Is the backend running?");
     } finally {
       setLoading(false);
     }
@@ -45,8 +45,8 @@ export function StorageLogin() {
       const loggedInUser = await authService.verifyOtp(phone, otp, "Storage Admin");
       setUser(loggedInUser);
       navigate("/storage/dashboard");
-    } catch {
-      toast.error("Invalid OTP");
+    } catch (err: any) {
+      toast.error(err.message || "Invalid OTP or connection failed");
     } finally {
       setLoading(false);
     }

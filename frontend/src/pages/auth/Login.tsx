@@ -47,6 +47,9 @@ export function Login() {
         toast.success("Welcome back");
         nav(user.role === "storage_owner" ? (user.hasStorage ? "/storage/dashboard" : "/storage/onboarding") : "/dashboard");
       }
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || "Could not connect to server. Is the backend running?");
     } finally { setLoading(false); }
   }
 
