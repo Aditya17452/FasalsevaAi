@@ -30,26 +30,31 @@ export const authService = {
     try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch { return null; }
   },
   async login(phone: string): Promise<{ requiresOtp: true }> {
-    return mockDelay({ requiresOtp: true as const }, 500);
+    const res = await apiClient.post("/auth/login", { phone });
+    return { requiresOtp: res.data.requiresOtp };
   },
-  async verifyOtp(phone: string, _otp: string, name = "Ramesh Patel"): Promise<AuthUser> {
+  async verifyOtp(phone: string, otp: string, name = "Ramesh Patel"): Promise<AuthUser> {
     const pending = readPending();
     const role = pending?.role ?? "farmer";
-    const user: AuthUser = {
-      id: role === "storage_owner" ? "u_owner_1" : "u_1",
-      name,
-      phone,
-      role,
-      hasStorage: role === "storage_owner" ? false : undefined,
-    };
+    const requestName = pending?.name ?? name;
+    
+    const res = await apiClient.post("/auth/verify", {
+        phone,
+        otp,
+        role,
+        name: requestName
+    });
+    
+    const user: AuthUser = res.data;
     localStorage.setItem(KEY, JSON.stringify(user));
     localStorage.setItem(TOKEN_KEY, "fake-jwt-token-123");
     localStorage.removeItem(PENDING_KEY);
-    return mockDelay(user, 500);
+    return user;
   },
   async signup(name: string, phone: string, role: AuthUser["role"] = "farmer"): Promise<{ requiresOtp: true }> {
     localStorage.setItem(PENDING_KEY, JSON.stringify({ name, phone, role }));
-    return mockDelay({ requiresOtp: true as const }, 500);
+    const res = await apiClient.post("/auth/login", { phone });
+    return { requiresOtp: res.data.requiresOtp };
   },
   updateCurrentUser(user: AuthUser) {
     if (typeof window === "undefined") return;

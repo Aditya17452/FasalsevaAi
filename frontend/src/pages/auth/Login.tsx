@@ -93,6 +93,11 @@ export function Login() {
           <p className="mt-6 text-center text-sm text-muted-foreground">
             New here? <Link to="/signup" className="font-semibold text-primary hover:underline">Create account</Link>
           </p>
+          <div className="mt-6 text-center">
+            <Link to="/storage/login" className="text-sm font-medium text-emerald-600 hover:underline">
+              Are you a Cold Storage Partner? Login here
+            </Link>
+          </div>
         </div>
       </div>
     </div>

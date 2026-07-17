@@ -198,6 +198,14 @@ def init_db():
         registered_at TEXT DEFAULT CURRENT_TIMESTAMP
     )''')
 
+    c.execute('''CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        phone TEXT UNIQUE NOT NULL,
+        name TEXT,
+        role TEXT DEFAULT 'farmer',
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )''' )
+
     # Pre-verified partner storages
     storages = [
         ('Shivam Cold Store',    'Ramesh Sharma',  22.7196, 75.8577, 'Dewas Naka, Indore', '9876543210', 2.0, 500,  400, 1),
@@ -215,6 +223,48 @@ def init_db():
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', storages)
     conn.commit()
     conn.close()
+
+class AuthLoginRequest(BaseModel):
+    phone: str
+
+class AuthVerifyRequest(BaseModel):
+    phone: str
+    otp: str
+    role: str = "farmer"
+    name: str = "Demo User"
+
+@app.post("/auth/login")
+async def auth_login(req: AuthLoginRequest):
+    return {"requiresOtp": True, "message": f"OTP sent to {req.phone}"}
+
+@app.post("/auth/verify")
+async def auth_verify(req: AuthVerifyRequest):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT id, phone, name, role FROM users WHERE phone = ?", (req.phone,))
+    user = c.fetchone()
+    
+    if not user:
+        c.execute("INSERT INTO users (phone, name, role) VALUES (?, ?, ?)", (req.phone, req.name, req.role))
+        conn.commit()
+        user_id = c.lastrowid
+        user_name = req.name
+        user_role = req.role
+    else:
+        user_id = user[0]
+        user_name = user[2]
+        user_role = user[3]
+        
+    conn.close()
+    
+    return {
+        "id": f"u_{user_id}",
+        "phone": req.phone,
+        "name": user_name,
+        "role": user_role,
+        "hasStorage": user_role == "storage_owner" and False, # simplified for now
+    }
+
 
 init_db()
 
