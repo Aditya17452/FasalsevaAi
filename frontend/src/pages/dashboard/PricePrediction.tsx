@@ -120,16 +120,12 @@ export function PricePrediction() {
     setLoading(true);
     setError(null);
     try {
-        const now   = new Date();
-        const month = now.getMonth() + 1;
-        const week  = Math.ceil(now.getDate() / 7);
-
         const res = await apiClient.post("/predict/price", {
             crop:          form.crop,
             state:         form.state,
             current_price: Number(form.current_price),
-            month:         month,
-            week:          week,
+            month:         form.month,
+            week:          form.week,
             target_days:   15
         });
 
