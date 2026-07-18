@@ -58,7 +58,7 @@ export function NewAnalysis() {
               
               <div className="mt-auto pt-4 flex flex-wrap items-center justify-between gap-3">
                 <Button asChild className="w-full bg-blue-600 hover:bg-blue-700 text-white">
-                  <Link to="/dashboard/new-analysis/price">
+                  <Link to="/dashboard/new-analysis/price-prediction">
                     Start <ArrowRight className="ml-2 h-4 w-4" />
                   </Link>
                 </Button>
