@@ -18,6 +18,20 @@ export function Header() {
   const { theme, toggle } = useTheme();
   const [open, setOpen] = useState(false);
 
+  const toggleLanguage = () => {
+    const isHindi = document.cookie.includes('googtrans=/en/hi');
+    if (!isHindi) {
+      document.cookie = `googtrans=/en/hi; path=/`;
+      document.cookie = `googtrans=/en/hi; domain=${window.location.hostname}; path=/`;
+    } else {
+      document.cookie = `googtrans=/en/en; path=/`;
+      document.cookie = `googtrans=/en/en; domain=${window.location.hostname}; path=/`;
+      document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+      document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; domain=${window.location.hostname}; path=/;`;
+    }
+    window.location.reload();
+  };
+
   return (
     <header className="sticky top-0 z-40 border-b border-border/60 glass">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
@@ -41,7 +55,7 @@ export function Header() {
         </nav>
 
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="hidden sm:inline-flex" aria-label="Language">
+          <Button variant="ghost" size="icon" className="hidden sm:inline-flex" onClick={toggleLanguage} aria-label="Translate to Hindi/English">
             <Languages className="h-4 w-4" />
           </Button>
           <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">

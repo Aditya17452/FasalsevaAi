@@ -1,7 +1,7 @@
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Warehouse, CalendarClock, BarChart3, Ticket, User,
-  Settings, LogOut, Menu, X, Leaf, Moon, Sun, Store, TrendingUp,
+  Settings, LogOut, Menu, X, Leaf, Moon, Sun, Store, TrendingUp, Languages
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -80,6 +80,15 @@ export function StorageOwnerLayout() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="ghost" size="icon" onClick={() => {
+              const isHi = document.cookie.includes('googtrans=/en/hi');
+              document.cookie = `googtrans=/en/${isHi ? 'en' : 'hi'}; path=/`;
+              document.cookie = `googtrans=/en/${isHi ? 'en' : 'hi'}; domain=${window.location.hostname}; path=/`;
+              if (isHi) document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+              window.location.reload();
+            }} aria-label="Translate">
+              <Languages className="h-4 w-4" />
+            </Button>
             <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">
               {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
