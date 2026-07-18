@@ -254,7 +254,8 @@ async def auth_verify(req: AuthVerifyRequest):
         user_id = user[0]
         user_name = user[2]
         user_role = user[3]
-        
+    c.execute("SELECT 1 FROM cold_storages WHERE owner_name = ?", (user_name,))
+    has_storage = c.fetchone() is not None
     conn.close()
     
     return {
@@ -262,9 +263,38 @@ async def auth_verify(req: AuthVerifyRequest):
         "phone": req.phone,
         "name": user_name,
         "role": user_role,
-        "hasStorage": user_role == "storage_owner" and False, # simplified for now
+        "hasStorage": user_role == "storage_owner" and has_storage,
     }
 
+
+class StorageRegisterRequest(BaseModel):
+    name: str
+    owner_name: str
+    address: str
+    lat: float
+    lng: float
+    phone: str
+    price_per_crate_day: float
+    capacity_crates: int
+    available_crates: int
+
+@app.post("/storage/register")
+async def storage_register(req: StorageRegisterRequest):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''
+        INSERT INTO cold_storages 
+        (name, owner_name, lat, lng, address, phone, price_per_crate_day, capacity_crates, available_crates, verified)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        req.name, req.owner_name, req.lat, req.lng, req.address, req.phone,
+        req.price_per_crate_day, req.capacity_crates, req.available_crates, 0
+    ))
+    conn.commit()
+    storage_id = c.lastrowid
+    conn.close()
+    
+    return {"message": "Storage registered successfully", "id": storage_id}
 
 init_db()
 
