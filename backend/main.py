@@ -2,10 +2,14 @@ import os
 import math
 import sqlite3
 import warnings
-from fastapi import FastAPI, Query
+import secrets
+import hashlib
+from datetime import datetime, timedelta
+from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import joblib
+import jwt
 import numpy as np
 import requests
 from groq import Groq
@@ -19,15 +23,31 @@ load_dotenv()
 
 app = FastAPI(title="FasalSeva API")
 
+SESSION_SECRET = os.getenv("SESSION_SECRET")
+if not SESSION_SECRET:
+    # No SESSION_SECRET set — generate an ephemeral one so local dev still
+    # works, but warn loudly since this invalidates all sessions on restart
+    # and MUST be set to a fixed value in production (see render.yaml).
+    SESSION_SECRET = secrets.token_hex(32)
+    print("[WARN] SESSION_SECRET not set in env — using a random ephemeral "
+          "secret. Set SESSION_SECRET in your environment for production "
+          "so login tokens survive a restart/redeploy.")
+
+DEFAULT_ALLOWED_ORIGINS = [
+    "http://localhost:8080",
+    "http://localhost:8081",
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "https://fasalseva-ai.vercel.app",
+]
+_extra_origins = os.getenv("ALLOWED_ORIGINS", "")
+ALLOWED_ORIGINS = DEFAULT_ALLOWED_ORIGINS + [
+    o.strip() for o in _extra_origins.split(",") if o.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8080",
-        "http://localhost:8081",
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "https://fasalseva-ai.vercel.app",
-    ],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -58,7 +78,11 @@ crop_encoding = {
 GROQ_API_KEY   = os.getenv("GROQ_API_KEY")
 DATAGOV_API_KEY = os.getenv("DATAGOV_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-groq_client    = Groq(api_key=GROQ_API_KEY)
+try:
+    groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+except Exception as e:
+    print(f"[WARN] Groq client failed to initialize: {e}")
+    groq_client = None
 
 GOVT_SCHEMES = [
     {
@@ -171,7 +195,23 @@ def suggest_schemes(risk_level: str, days_remaining: float,
     return result[:4]
 
 # ─── Task 2: SQLite Cold Storage DB ────────────────────────────
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cold_storage.db')
+# DB_PATH can point at a mounted persistent disk in production (see render.yaml);
+# defaults to a file next to this script for local dev.
+DB_PATH = os.getenv(
+    "DB_PATH",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cold_storage.db')
+)
+
+def _dedupe_cold_storages(c):
+    """Collapse pre-existing duplicate rows (same name+lat+lng) down to the lowest id,
+    keeping the row with the most recent registered_at. Needed once for DBs created
+    before the unique index existed."""
+    c.execute('''
+        DELETE FROM cold_storages
+        WHERE id NOT IN (
+            SELECT MIN(id) FROM cold_storages GROUP BY name, lat, lng
+        )
+    ''')
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -180,7 +220,7 @@ def init_db():
     # Drop old table if schema is outdated (missing owner_name / available_crates)
     c.execute("PRAGMA table_info(cold_storages)")
     cols = [row[1] for row in c.fetchall()]
-    if 'owner_name' not in cols:
+    if cols and 'owner_name' not in cols:
         c.execute('DROP TABLE IF EXISTS cold_storages')
 
     c.execute('''CREATE TABLE IF NOT EXISTS cold_storages (
@@ -206,6 +246,20 @@ def init_db():
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )''' )
 
+    c.execute('''CREATE TABLE IF NOT EXISTS otp_codes (
+        phone TEXT PRIMARY KEY,
+        otp_hash TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        attempts INTEGER DEFAULT 0
+    )''')
+
+    # A prior version inserted seed rows with no uniqueness guard, so older DBs
+    # (or ones created before this change) may already have duplicates. Clear
+    # those out once before the unique index is created below.
+    _dedupe_cold_storages(c)
+    c.execute('''CREATE UNIQUE INDEX IF NOT EXISTS idx_cold_storages_identity
+        ON cold_storages(name, lat, lng)''')
+
     # Pre-verified partner storages
     storages = [
         ('Shivam Cold Store',    'Ramesh Sharma',  22.7196, 75.8577, 'Dewas Naka, Indore', '9876543210', 2.0, 500,  400, 1),
@@ -217,6 +271,7 @@ def init_db():
         ('Narmada Cold Chain',   'Anil Gupta',     22.3072, 75.0434, 'Barwani, MP',        '9210987654', 1.9, 450,  350, 1),
     ]
 
+    # Now that (name, lat, lng) is unique, OR IGNORE actually dedupes on repeat startups.
     c.executemany('''INSERT OR IGNORE INTO cold_storages
         (name, owner_name, lat, lng, address, phone,
          price_per_crate_day, capacity_crates, available_crates, verified)
@@ -233,17 +288,65 @@ class AuthVerifyRequest(BaseModel):
     role: str = "farmer"
     name: str = "Demo User"
 
+OTP_TTL_MINUTES = 5
+OTP_MAX_ATTEMPTS = 5
+
+def _send_otp_sms(phone: str, otp: str):
+    """Deliver the OTP to the user. No SMS provider is configured yet, so this
+    just logs it — swap this body for a real provider call (Twilio, MSG91, etc.)
+    once you have an account. Never returned in the API response in the meantime."""
+    print(f"[OTP] {phone} -> {otp} (expires in {OTP_TTL_MINUTES} min)")
+
 @app.post("/auth/login")
 async def auth_login(req: AuthLoginRequest):
+    otp = f"{secrets.randbelow(1_000_000):06d}"
+    otp_hash = hashlib.sha256(otp.encode()).hexdigest()
+    expires_at = (datetime.utcnow() + timedelta(minutes=OTP_TTL_MINUTES)).isoformat()
+
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''
+        INSERT INTO otp_codes (phone, otp_hash, expires_at, attempts)
+        VALUES (?, ?, ?, 0)
+        ON CONFLICT(phone) DO UPDATE SET otp_hash = excluded.otp_hash,
+            expires_at = excluded.expires_at, attempts = 0
+    ''', (req.phone, otp_hash, expires_at))
+    conn.commit()
+    conn.close()
+
+    _send_otp_sms(req.phone, otp)
     return {"requiresOtp": True, "message": f"OTP sent to {req.phone}"}
 
 @app.post("/auth/verify")
 async def auth_verify(req: AuthVerifyRequest):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+
+    c.execute("SELECT otp_hash, expires_at, attempts FROM otp_codes WHERE phone = ?", (req.phone,))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=400, detail="No OTP was requested for this number")
+
+    otp_hash, expires_at, attempts = row
+    if attempts >= OTP_MAX_ATTEMPTS:
+        conn.close()
+        raise HTTPException(status_code=429, detail="Too many attempts. Request a new OTP")
+    if datetime.utcnow() > datetime.fromisoformat(expires_at):
+        conn.close()
+        raise HTTPException(status_code=400, detail="OTP expired. Request a new one")
+    if hashlib.sha256(req.otp.encode()).hexdigest() != otp_hash:
+        c.execute("UPDATE otp_codes SET attempts = attempts + 1 WHERE phone = ?", (req.phone,))
+        conn.commit()
+        conn.close()
+        raise HTTPException(status_code=400, detail="Incorrect OTP")
+
+    # OTP is correct and single-use — clear it so it can't be replayed.
+    c.execute("DELETE FROM otp_codes WHERE phone = ?", (req.phone,))
+
     c.execute("SELECT id, phone, name, role FROM users WHERE phone = ?", (req.phone,))
     user = c.fetchone()
-    
+
     if not user:
         c.execute("INSERT INTO users (phone, name, role) VALUES (?, ?, ?)", (req.phone, req.name, req.role))
         conn.commit()
@@ -256,14 +359,27 @@ async def auth_verify(req: AuthVerifyRequest):
         user_role = user[3]
     c.execute("SELECT 1 FROM cold_storages WHERE owner_name = ?", (user_name,))
     has_storage = c.fetchone() is not None
+    conn.commit()
     conn.close()
-    
+
+    token = jwt.encode(
+        {
+            "sub": f"u_{user_id}",
+            "phone": req.phone,
+            "role": user_role,
+            "exp": datetime.utcnow() + timedelta(days=30),
+        },
+        SESSION_SECRET,
+        algorithm="HS256",
+    )
+
     return {
         "id": f"u_{user_id}",
         "phone": req.phone,
         "name": user_name,
         "role": user_role,
         "hasStorage": user_role == "storage_owner" and has_storage,
+        "token": token,
     }
 
 
@@ -282,18 +398,22 @@ class StorageRegisterRequest(BaseModel):
 async def storage_register(req: StorageRegisterRequest):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute('''
-        INSERT INTO cold_storages 
-        (name, owner_name, lat, lng, address, phone, price_per_crate_day, capacity_crates, available_crates, verified)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (
-        req.name, req.owner_name, req.lat, req.lng, req.address, req.phone,
-        req.price_per_crate_day, req.capacity_crates, req.available_crates, 0
-    ))
-    conn.commit()
-    storage_id = c.lastrowid
-    conn.close()
-    
+    try:
+        c.execute('''
+            INSERT INTO cold_storages
+            (name, owner_name, lat, lng, address, phone, price_per_crate_day, capacity_crates, available_crates, verified)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            req.name, req.owner_name, req.lat, req.lng, req.address, req.phone,
+            req.price_per_crate_day, req.capacity_crates, req.available_crates, 0
+        ))
+        conn.commit()
+        storage_id = c.lastrowid
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail="A storage with this name and location is already registered")
+    finally:
+        conn.close()
+
     return {"message": "Storage registered successfully", "id": storage_id}
 
 init_db()

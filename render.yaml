@@ -1,0 +1,45 @@
+# Render Blueprint for the FasalSeva backend.
+#
+# This does NOT automatically change your existing "fasalsevaai" service —
+# Render only applies a render.yaml when you create a NEW Blueprint deploy
+# (New + > Blueprint in the dashboard, pointed at this repo) or explicitly
+# sync an existing Blueprint-linked service to it.
+#
+# To fix DB persistence on your CURRENT service without recreating it, do
+# this manually in the Render dashboard instead (equivalent to what's below):
+#   1. Service > Disks > Add Disk: name "fasalseva-data", mount path
+#      "/var/data", size 1GB. Persistent disks require the Starter plan or
+#      higher — the free plan does not support attached disks.
+#   2. Service > Environment: add DB_PATH = /var/data/cold_storage.db
+#   3. Manual Deploy > Deploy latest commit (so init_db() creates the DB
+#      fresh at the new mounted path).
+#
+# If you'd rather manage this service as code going forward, create it as a
+# Blueprint from this file instead — see https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: fasalsevaai
+    runtime: python
+    plan: starter
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    disk:
+      name: fasalseva-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: DB_PATH
+        value: /var/data/cold_storage.db
+      - key: GROQ_API_KEY
+        sync: false
+      - key: DATAGOV_API_KEY
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: ALLOWED_ORIGINS
+        sync: false

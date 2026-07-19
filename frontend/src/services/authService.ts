@@ -44,10 +44,10 @@ export const authService = {
         role,
         name: requestName
     });
-    
-    const user: AuthUser = res.data;
+
+    const { token, ...user } = res.data as AuthUser & { token: string };
     localStorage.setItem(KEY, JSON.stringify(user));
-    localStorage.setItem(TOKEN_KEY, "fake-jwt-token-123");
+    localStorage.setItem(TOKEN_KEY, token);
     localStorage.removeItem(PENDING_KEY);
     return user;
   },
