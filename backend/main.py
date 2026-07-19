@@ -481,17 +481,6 @@ class PriceInput(BaseModel):
     week: int
     target_days: int = 15
 
-class ColdStorageRegister(BaseModel):
-    name: str
-    owner_name: str
-    address: str
-    lat: float
-    lng: float
-    phone: str
-    price_per_crate_day: float
-    capacity_crates: int
-    available_crates: int
-
 class RecommendInput(BaseModel):
     crop: str
     quantity_kg: float
@@ -1108,24 +1097,6 @@ def get_storage(lat: float = Query(...), lng: float = Query(...)):
         "osm_count":      len(osm_filtered),
         "results":        final
     }
-
-
-# Storage registration endpoint
-@app.post("/storage/register")
-def register_storage(data: ColdStorageRegister):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('''INSERT INTO cold_storages
-        (name, owner_name, lat, lng, address, phone,
-         price_per_crate_day, capacity_crates, available_crates, verified)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)''',
-        (data.name, data.owner_name, data.lat, data.lng,
-         data.address, data.phone, data.price_per_crate_day,
-         data.capacity_crates, data.available_crates))
-    conn.commit()
-    storage_id = c.lastrowid
-    conn.close()
-    return {"message": "Registration successful. Verification pending.", "id": storage_id}
 
 
 @app.get("/storage/all")

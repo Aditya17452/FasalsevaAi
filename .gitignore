@@ -49,3 +49,6 @@ venv.bak/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Runtime database (local dev state, not source)
+backend/cold_storage.db
