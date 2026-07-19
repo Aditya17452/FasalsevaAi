@@ -1,38 +1,29 @@
-# Render Blueprint for the FasalSeva backend.
+# Render Blueprint for the FasalSeva backend — free tier.
 #
 # This does NOT automatically change your existing "fasalsevaai" service —
 # Render only applies a render.yaml when you create a NEW Blueprint deploy
 # (New + > Blueprint in the dashboard, pointed at this repo) or explicitly
-# sync an existing Blueprint-linked service to it.
+# sync an existing Blueprint-linked service to it. To match your CURRENT
+# service to this, just set the env vars below in its dashboard instead.
 #
-# To fix DB persistence on your CURRENT service without recreating it, do
-# this manually in the Render dashboard instead (equivalent to what's below):
-#   1. Service > Disks > Add Disk: name "fasalseva-data", mount path
-#      "/var/data", size 1GB. Persistent disks require the Starter plan or
-#      higher — the free plan does not support attached disks.
-#   2. Service > Environment: add DB_PATH = /var/data/cold_storage.db
-#   3. Manual Deploy > Deploy latest commit (so init_db() creates the DB
-#      fresh at the new mounted path).
-#
-# If you'd rather manage this service as code going forward, create it as a
-# Blueprint from this file instead — see https://render.com/docs/blueprint-spec
+# No persistent disk here on purpose: the free plan doesn't support one.
+# DB_PATH is left unset so it falls back to a local file next to main.py —
+# that file resets (back to the 7 seed cold storages, no real registrations
+# or logged-in users) every time the free instance cold-starts after being
+# idle, and on every redeploy. That's an accepted tradeoff for staying on
+# free tier, not a bug. If you outgrow that later, look at Turso (free-tier,
+# SQLite-compatible) or a hosted Postgres for real persistence.
 
 services:
   - type: web
     name: fasalsevaai
     runtime: python
-    plan: starter
+    plan: free
     rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /healthz
-    disk:
-      name: fasalseva-data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
-      - key: DB_PATH
-        value: /var/data/cold_storage.db
       - key: GROQ_API_KEY
         sync: false
       - key: DATAGOV_API_KEY
